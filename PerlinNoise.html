@@ -1,0 +1,164 @@
+<html>
+<canvas id="canvas" width=500 height=500></canvas>
+<script>
+canvas = document.getElementById('canvas'); 
+context = canvas.getContext('2d'); 
+
+var GetEmptyArray = function(width, height){
+    var map = [];
+    var tmp = [];
+    for(row = 0; row < height; row++){
+        var tmp = [];
+        for(col = 0; col < width; col++){
+            tmp.push(0.0);
+        }
+        map.push(tmp);
+    }
+    return map;
+};
+
+var GenerateWhiteNoise = function(width, height){
+    var tmp = GetEmptyArray(width, height);
+    for (var j = 0; j < height; j++){
+        for (var i = 0; i < width; i++){
+            tmp[j][i] = Math.random(1);
+        }
+    }
+    return tmp;
+};
+
+var GenerateSmoothNoise = function(baseNoise, octave){
+   var width = baseNoise.length;
+   var height = baseNoise[0].length;
+ 
+   var smoothNoise = GetEmptyArray(width, height);
+ 
+   var samplePeriod = Math.floor(Math.pow(2, octave)); // calculates 2 ^ k
+   var sampleFrequency = 1.0 / samplePeriod;
+   for (var i = 0; i < width; i++){
+      //calculate the horizontal sampling indices
+      var sample_i0 = Math.floor(i / samplePeriod) * samplePeriod;
+      var sample_i1 = Math.floor(sample_i0 + samplePeriod) % width; //wrap around
+      var horizontal_blend = (i - sample_i0) * sampleFrequency;
+ 
+      for (var j = 0; j < height; j++){
+         //calculate the vertical sampling indices
+         var sample_j0 = Math.floor(j / samplePeriod) * samplePeriod;
+         var sample_j1 = Math.floor(sample_j0 + samplePeriod) % height; //wrap around
+         var vertical_blend = (j - sample_j0) * sampleFrequency;
+ 
+         //blend the top two corners
+         var top = Interpolate(baseNoise[sample_i0][sample_j0], baseNoise[sample_i1][sample_j0], horizontal_blend);
+ 
+         //blend the bottom two corners
+         var bottom = Interpolate(baseNoise[sample_i0][sample_j1], baseNoise[sample_i1][sample_j1], horizontal_blend);
+
+         //final blend
+         smoothNoise[i][j] = Interpolate(top, bottom, vertical_blend);
+      }
+   }
+   return smoothNoise;
+};
+
+var Interpolate = function(x0, x1, alpha){
+   return x0 * (1 - alpha) + alpha * x1;
+};
+
+var GeneratePerlinNoise = function(baseNoise, octaveCount){
+   var width = baseNoise.length;
+   var height = baseNoise[0].length;
+ 
+   var smoothNoise = [];
+   var persistance = 0.7;
+ 
+   //generate smooth noise
+   for (var i = 0; i < octaveCount; i++){
+       smoothNoise.push(GenerateSmoothNoise(baseNoise, i));
+   }
+     
+    var perlinNoise = GetEmptyArray(width, height);
+    var amplitude = 1.0;
+    var totalAmplitude = 0.0;
+ 
+    //blend noise together
+    for (var octave = octaveCount - 1; octave >= 0; octave--){
+       amplitude *= persistance;
+       totalAmplitude += amplitude;
+       for (var i = 0; i < width; i++){
+          for (var j = 0; j < height; j++){
+             perlinNoise[j][i] += smoothNoise[octave][j][i] * amplitude;
+          }
+       }
+    }
+
+   //normalisation
+   for (var i = 0; i < width; i++){
+      for (var j = 0; j < height; j++){
+         perlinNoise[j][i] /= totalAmplitude;
+      }
+   }
+   return perlinNoise;
+};
+
+var GetColor = function(gradientStart, gradientEnd, t){
+    var u = 1 - t;
+    var color = {r: (gradientStart * u + gradientEnd * t), g: (gradientStart * u + gradientEnd * t), b: (gradientStart * u + gradientEnd * t), alpha: 255};
+    return color;
+};
+
+var MapGradient = function(gradientStart, gradientEnd, perlinNoise){
+   var width = perlinNoise.length;
+   var height = perlinNoise[0].length;
+   var image = GetEmptyArray(width, height)
+   for (var i = 0; i < width; i++){
+       for (var j = 0; j < height; j++){
+           image[j][i] = GetColor(gradientStart, gradientEnd, perlinNoise[j][i]);
+       }
+   }
+   return image;
+};
+	
+var GetTile = function(perlinNoise, k){
+   var width = perlinNoise.length;
+   var height = perlinNoise[0].length;
+   var tilemap = GetEmptyArray(width, height)
+   for (var i = 0; i < width; i++){
+       for (var j = 0; j < height; j++){
+           n = perlinNoise[j][i];
+           tilemap[j][i] = Math.floor (n / (1.0 / k));
+       }
+   }
+   return tilemap;
+};
+
+var Draw = function(context, level){
+    // create image data
+    var image = context.createImageData(canvas.width, canvas.height);
+    // iterate through pixel data (1 pixels consists of 4 ints in the array)
+    for(var i = 0; i < image.data.length; i += 4){
+        var x = Math.floor( (i / 4) % canvas.width);
+        var y = Math.floor( (i / 4) / canvas.width);
+        
+        image.data[i] = level[y][x].r * 0.4;
+        image.data[i+1] = level[y][x].g * 1;
+        image.data[i+2] = level[y][x].b * 0.2;
+        image.data[i+3] = level[y][x].alpha;
+    }
+    // write pixel data to destination context
+    context.putImageData(image,0,0);
+    return image;
+};
+
+var noise = GenerateWhiteNoise(canvas.width, canvas.height);
+var octaves = 6;
+var perlin = GeneratePerlinNoise(noise, octaves);
+var image = MapGradient(1, 255, perlin);
+Draw(context, image);
+
+// Tile map version: returns an array based on a tileset of 24 (tileset not included)
+var num_tiles = 24;
+var tilemap = GetTile(perlin, num_tiles);
+
+console.log(tilemap);
+</script>
+</html>
